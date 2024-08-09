@@ -68,6 +68,8 @@ public class VertexAIAnthropicChatOptions implements FunctionCallingOptions, Cha
 	 */
 	private @JsonProperty("anthropic_version") String anthropicVersion;
 
+	private @JsonProperty("model") String model;
+
 	/**
 	 * Tool Function Callbacks to register with the ChatModel.
 	 * For Prompt Options the functionCallbacks are automatically enabled for the duration of the prompt execution.
@@ -91,6 +93,9 @@ public class VertexAIAnthropicChatOptions implements FunctionCallingOptions, Cha
 	@JsonIgnore
 	private Set<String> functions = new HashSet<>();
 	// @formatter:on
+
+	private VertexAIAnthropicChatOptions() {
+	}
 
 	public static Builder builder() {
 		return new Builder();
@@ -127,6 +132,11 @@ public class VertexAIAnthropicChatOptions implements FunctionCallingOptions, Cha
 
 		public Builder withAnthropicVersion(String anthropicVersion) {
 			this.options.setAnthropicVersion(anthropicVersion);
+			return this;
+		}
+
+		public Builder withModel(String model) {
+			this.options.setModel(model);
 			return this;
 		}
 
@@ -192,6 +202,10 @@ public class VertexAIAnthropicChatOptions implements FunctionCallingOptions, Cha
 		return this.anthropicVersion;
 	}
 
+	public String getModel() {
+		return this.model;
+	}
+
 	public Integer getMaxOutputTokens() {
 		return this.maxOutputTokens;
 	}
@@ -202,6 +216,10 @@ public class VertexAIAnthropicChatOptions implements FunctionCallingOptions, Cha
 
 	public void setAnthropicVersion(String anthropicVersion) {
 		this.anthropicVersion = anthropicVersion;
+	}
+
+	public void setModel(String model) {
+		this.model = model;
 	}
 
 	public List<FunctionCallback> getFunctionCallbacks() {
@@ -232,6 +250,7 @@ public class VertexAIAnthropicChatOptions implements FunctionCallingOptions, Cha
 			.withTopK(fromOptions.getTopK())
 			.withMaxOutputTokens(fromOptions.getMaxOutputTokens())
 			.withAnthropicVersion(fromOptions.getAnthropicVersion())
+			.withModel(fromOptions.getModel())
 			.withFunctionCallbacks(fromOptions.getFunctionCallbacks())
 			.withFunctions(fromOptions.getFunctions())
 			.build();

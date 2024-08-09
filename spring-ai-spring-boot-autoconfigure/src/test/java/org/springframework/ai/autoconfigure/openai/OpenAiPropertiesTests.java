@@ -414,7 +414,8 @@ public class OpenAiPropertiesTests {
 				assertThat(chatProperties.getOptions().getMaxTokens()).isEqualTo(123);
 				assertThat(chatProperties.getOptions().getN()).isEqualTo(10);
 				assertThat(chatProperties.getOptions().getPresencePenalty()).isEqualTo(0);
-				assertThat(chatProperties.getOptions().getResponseFormat()).isEqualTo(new ResponseFormat("json"));
+				assertThat(chatProperties.getOptions().getResponseFormat())
+					.isEqualTo(new ResponseFormat(ResponseFormat.Type.JSON_OBJECT));
 				assertThat(chatProperties.getOptions().getSeed()).isEqualTo(66);
 				assertThat(chatProperties.getOptions().getStop()).contains("boza", "koza");
 				assertThat(chatProperties.getOptions().getTemperature()).isEqualTo(0.55f);

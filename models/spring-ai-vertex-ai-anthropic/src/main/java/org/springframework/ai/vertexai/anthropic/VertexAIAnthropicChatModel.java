@@ -58,6 +58,10 @@ public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implemen
 
 	private final GenerationConfig generationConfig;
 
+	private static final String DEFAULT_ANTHROPIC_VERSION = "vertex-2023-10-16";
+
+	private static final String DEFAULT_ANTHROPIC_PUBLISHER = "publisher/anthropic/models/";
+
 	public enum AnthropicMessageType {
 
 		USER("user"),
@@ -78,13 +82,13 @@ public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implemen
 
 	public enum ChatModel implements ChatModelDescription {
 
-		ANTHROPIC("vertex-2023-10-16");
+		ANTHROPIC_CLAUDE35_SONNET("claude-3-5-sonnet@20240620");
 
 		ChatModel(String value) {
 			this.value = value;
 		}
 
-		public final String value;
+		private final String value;
 
 		public String getValue() {
 			return this.value;
@@ -92,7 +96,7 @@ public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implemen
 
 		@Override
 		public String getName() {
-			return this.value;
+			return this.getName();
 		}
 
 	}
@@ -103,7 +107,8 @@ public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implemen
 					.withTemperature(0.8f)
 					.withMaxOutputTokens(500)
 					.withTopK(10)
-					.withAnthropicVersion(ChatModel.ANTHROPIC.value)
+					.withAnthropicVersion(DEFAULT_ANTHROPIC_VERSION)
+					.withModel(ChatModel.ANTHROPIC_CLAUDE35_SONNET.getValue())
 					.build());
 	}
 
@@ -122,7 +127,7 @@ public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implemen
 		super(functionCallbackContext, options, toolFunctionCallbacks);
 
 		Assert.notNull(vertexAI, "VertexAI must not be null");
-		Assert.notNull(options, "VertexAiGeminiChatOptions must not be null");
+		Assert.notNull(options, "VertexAiAnthropicChatOptions must not be null");
 
 		this.vertexAI = vertexAI;
 		this.defaultOptions = options;
@@ -244,8 +249,8 @@ public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implemen
 
 		GenerationConfig generationConfig = this.generationConfig;
 
-		var generativeModelBuilder = new GenerativeModel.Builder()
-			.setModelName(this.defaultOptions.getAnthropicVersion())
+		GenerativeModel.Builder generativeModelBuilder = new GenerativeModel.Builder()
+			.setModelName(DEFAULT_ANTHROPIC_PUBLISHER + this.defaultOptions.getModel())
 			.setVertexAi(this.vertexAI);
 
 		VertexAIAnthropicChatOptions updatedRuntimeOptions = VertexAIAnthropicChatOptions.builder().build();
@@ -266,10 +271,10 @@ public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implemen
 
 		if (updatedRuntimeOptions != null) {
 
-			if (StringUtils.hasText(updatedRuntimeOptions.getAnthropicVersion())
-					&& !updatedRuntimeOptions.getAnthropicVersion().equals(this.defaultOptions.getAnthropicVersion())) {
+			if (StringUtils.hasText(updatedRuntimeOptions.getModel())
+					&& !updatedRuntimeOptions.getModel().equals(this.defaultOptions.getModel())) {
 				// Override model name
-				generativeModelBuilder.setModelName(updatedRuntimeOptions.getAnthropicVersion());
+				generativeModelBuilder.setModelName(DEFAULT_ANTHROPIC_PUBLISHER + updatedRuntimeOptions.getModel());
 			}
 
 			generationConfig = toGenerationConfig(updatedRuntimeOptions);
@@ -283,19 +288,17 @@ public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implemen
 
 		generativeModelBuilder.setGenerationConfig(generationConfig);
 
-		GenerativeModel generativeModel = generativeModelBuilder.build();
-
 		List<Content> contents = toAnthropicContent(
 				prompt.getInstructions().stream().filter(m -> m.getMessageType() == MessageType.SYSTEM).toList());
 
 		if (!CollectionUtils.isEmpty(contents)) {
 			Assert.isTrue(contents.size() <= 1, "Only one system message is allowed in the prompt");
-			generativeModel = generativeModel.withSystemInstruction(contents.get(0));
+			generativeModelBuilder.setSystemInstruction(contents.get(0));
 		}
 
 		return new AnthropicRequest(toAnthropicContent(
 				prompt.getInstructions().stream().filter(m -> m.getMessageType() != MessageType.SYSTEM).toList()),
-				generativeModel);
+				generativeModelBuilder.build());
 	}
 
 	private GenerationConfig toGenerationConfig(VertexAIAnthropicChatOptions options) {
@@ -325,15 +328,15 @@ public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implemen
 
 		List<Content> contents = instructions.stream()
 			.map(message -> Content.newBuilder()
-				.setRole(toGeminiMessageType(message.getMessageType()).getValue())
-				.addAllParts(messageToGeminiParts(message))
+				.setRole(toAnthropicMessageType(message.getMessageType()).getValue())
+				.addAllParts(messageToAnthropicParts(message))
 				.build())
 			.toList();
 
 		return contents;
 	}
 
-	private static AnthropicMessageType toGeminiMessageType(@NonNull MessageType type) {
+	private static AnthropicMessageType toAnthropicMessageType(@NonNull MessageType type) {
 		Assert.notNull(type, "Message type must not be null");
 
 		switch (type) {
@@ -348,7 +351,7 @@ public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implemen
 		}
 	}
 
-	static List<Part> messageToGeminiParts(Message message) {
+	static List<Part> messageToAnthropicParts(Message message) {
 		if (message instanceof SystemMessage systemMessage) {
 			List<Part> parts = new ArrayList<>();
 
@@ -399,7 +402,7 @@ public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implemen
 				.toList();
 		}
 		else {
-			throw new IllegalArgumentException("Gemini doesn't support message type: " + message.getClass());
+			throw new IllegalArgumentException("Anthropic doesn't support message type: " + message.getClass());
 		}
 	}
 
