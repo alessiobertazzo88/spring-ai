@@ -15,33 +15,31 @@
  */
 package org.springframework.ai.vertexai.anthropic;
 
-import com.fasterxml.jackson.annotation.JsonInclude;
-import com.google.cloud.vertexai.VertexAI;
-import com.google.cloud.vertexai.api.*;
-import com.google.cloud.vertexai.generativeai.GenerativeModel;
-import com.google.cloud.vertexai.generativeai.PartMaker;
-import com.google.cloud.vertexai.generativeai.ResponseStream;
-import com.google.protobuf.Struct;
-import com.google.protobuf.util.JsonFormat;
-import org.springframework.ai.chat.messages.*;
+import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.messages.MessageType;
+import org.springframework.ai.chat.messages.ToolResponseMessage;
+import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.metadata.ChatGenerationMetadata;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.model.*;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
-import org.springframework.ai.model.ChatModelDescription;
-import org.springframework.ai.model.Media;
 import org.springframework.ai.model.ModelOptionsUtils;
 import org.springframework.ai.model.function.FunctionCallback;
 import org.springframework.ai.model.function.FunctionCallbackContext;
-import org.springframework.ai.vertexai.anthropic.metadata.VertexAiUsage;
-import org.springframework.lang.NonNull;
+import org.springframework.ai.retry.RetryUtils;
+import org.springframework.ai.vertexai.anthropic.api.VertexAIAnthropicApi;
+import org.springframework.ai.vertexai.anthropic.model.*;
+import org.springframework.http.ResponseEntity;
+import org.springframework.retry.support.RetryTemplate;
 import org.springframework.util.Assert;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
 import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Java {@link ChatModel} and {@link StreamingChatModel} for the VertexAI Anthropic chat
@@ -52,106 +50,67 @@ import java.util.*;
  */
 public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implements ChatModel, StreamingChatModel {
 
-	private final VertexAI vertexAI;
+	private final VertexAIAnthropicApi anthropicApi;
 
 	private final VertexAIAnthropicChatOptions defaultOptions;
 
-	private final GenerationConfig generationConfig;
+	/**
+	 * The retry template used to retry the VertexAI Anthropic API calls.
+	 */
+	public final RetryTemplate retryTemplate;
 
 	private static final String DEFAULT_ANTHROPIC_VERSION = "vertex-2023-10-16";
 
-	private static final String DEFAULT_ANTHROPIC_PUBLISHER = "publisher/anthropic/models/";
-
-	public enum AnthropicMessageType {
-
-		USER("user"),
-
-		MODEL("model");
-
-		AnthropicMessageType(String value) {
-			this.value = value;
-		}
-
-		public final String value;
-
-		public String getValue() {
-			return this.value;
-		}
-
-	}
-
-	public enum ChatModel implements ChatModelDescription {
-
-		ANTHROPIC_CLAUDE35_SONNET("claude-3-5-sonnet@20240620");
-
-		ChatModel(String value) {
-			this.value = value;
-		}
-
-		private final String value;
-
-		public String getValue() {
-			return this.value;
-		}
-
-		@Override
-		public String getName() {
-			return this.getName();
-		}
-
-	}
-
-	public VertexAIAnthropicChatModel(VertexAI vertexAI) {
-		this(vertexAI,
+	public VertexAIAnthropicChatModel(VertexAIAnthropicApi anthropicApi) {
+		this(anthropicApi,
 				VertexAIAnthropicChatOptions.builder()
 					.withTemperature(0.8f)
-					.withMaxOutputTokens(500)
+					.withMaxTokens(500)
 					.withTopK(10)
 					.withAnthropicVersion(DEFAULT_ANTHROPIC_VERSION)
-					.withModel(ChatModel.ANTHROPIC_CLAUDE35_SONNET.getValue())
+					.withModel(ChatModels.CLAUDE_3_5_SONNET.getValue())
 					.build());
 	}
 
-	public VertexAIAnthropicChatModel(VertexAI vertexAI, VertexAIAnthropicChatOptions options) {
-		this(vertexAI, options, null);
+	public VertexAIAnthropicChatModel(VertexAIAnthropicApi anthropicApi, VertexAIAnthropicChatOptions options) {
+		this(anthropicApi, options, RetryUtils.DEFAULT_RETRY_TEMPLATE);
 	}
 
-	public VertexAIAnthropicChatModel(VertexAI vertexAI, VertexAIAnthropicChatOptions options,
-			FunctionCallbackContext functionCallbackContext) {
-		this(vertexAI, options, functionCallbackContext, List.of());
+	public VertexAIAnthropicChatModel(VertexAIAnthropicApi anthropicApi, VertexAIAnthropicChatOptions options,
+			RetryTemplate retryTemplate) {
+		this(anthropicApi, options, retryTemplate, null);
 	}
 
-	public VertexAIAnthropicChatModel(VertexAI vertexAI, VertexAIAnthropicChatOptions options,
-			FunctionCallbackContext functionCallbackContext, List<FunctionCallback> toolFunctionCallbacks) {
+	public VertexAIAnthropicChatModel(VertexAIAnthropicApi anthropicApi, VertexAIAnthropicChatOptions options,
+			RetryTemplate retryTemplate, FunctionCallbackContext functionCallbackContext) {
+		this(anthropicApi, options, retryTemplate, functionCallbackContext, List.of());
+	}
+
+	public VertexAIAnthropicChatModel(VertexAIAnthropicApi anthropicApi, VertexAIAnthropicChatOptions options,
+			RetryTemplate retryTemplate, FunctionCallbackContext functionCallbackContext,
+			List<FunctionCallback> toolFunctionCallbacks) {
 
 		super(functionCallbackContext, options, toolFunctionCallbacks);
 
-		Assert.notNull(vertexAI, "VertexAI must not be null");
+		Assert.notNull(anthropicApi, "VertexAIAnthropicApi must not be null");
 		Assert.notNull(options, "VertexAiAnthropicChatOptions must not be null");
 
-		this.vertexAI = vertexAI;
+		this.anthropicApi = anthropicApi;
 		this.defaultOptions = options;
-		this.generationConfig = toGenerationConfig(options);
+		this.retryTemplate = retryTemplate;
 	}
 
 	@Override
 	public ChatResponse call(Prompt prompt) {
-		AnthropicRequest anthropicRequest = createAnthropicRequest(prompt);
+		ChatCompletionRequest request = createRequest(prompt, false);
 
-		GenerateContentResponse response = this.getContentResponse(anthropicRequest);
+		ResponseEntity<ChatCompletionResponse> completionEntity = this.retryTemplate
+			.execute(ctx -> this.anthropicApi.chatCompletion(request, defaultOptions.getModel()));
 
-		List<Generation> generations = response.getCandidatesList()
-			.stream()
-			.map(this::responseCandiateToGeneration)
-			.flatMap(List::stream)
-			.toList();
+		ChatResponse chatResponse = toChatResponse(completionEntity.getBody());
 
-		ChatResponse chatResponse = new ChatResponse(generations, toChatResponseMetadata(response));
-
-		if (isToolCall(chatResponse, Set.of(Candidate.FinishReason.STOP.name()))) {
+		if (this.isToolCall(chatResponse, Set.of("tool_use"))) {
 			var toolCallConversation = handleToolCalls(prompt, chatResponse);
-			// Recursively call the call method with the tool call message
-			// conversation that contains the call responses.
 			return this.call(new Prompt(toolCallConversation, prompt.getOptions()));
 		}
 
@@ -160,319 +119,184 @@ public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implemen
 
 	@Override
 	public Flux<ChatResponse> stream(Prompt prompt) {
-		try {
-			AnthropicRequest anthropicRequest = createAnthropicRequest(prompt);
+		ChatCompletionRequest request = createRequest(prompt, true);
 
-			ResponseStream<GenerateContentResponse> responseStream = anthropicRequest.model
-				.generateContentStream(anthropicRequest.contents);
+		Flux<ChatCompletionResponse> response = this.retryTemplate
+			.execute(ctx -> this.anthropicApi.chatCompletionStream(request, defaultOptions.getModel()));
 
-			return Flux.fromStream(responseStream.stream()).switchMap(response -> {
+		return response.switchMap(chatCompletionResponse -> {
 
-				List<Generation> generations = response.getCandidatesList()
-					.stream()
-					.map(this::responseCandiateToGeneration)
-					.flatMap(List::stream)
-					.toList();
+			ChatResponse chatResponse = toChatResponse(chatCompletionResponse);
 
-				ChatResponse chatResponse = new ChatResponse(generations, toChatResponseMetadata(response));
+			if (this.isToolCall(chatResponse, Set.of("tool_use"))) {
+				var toolCallConversation = handleToolCalls(prompt, chatResponse);
+				return this.stream(new Prompt(toolCallConversation, prompt.getOptions()));
+			}
 
-				if (isToolCall(chatResponse, Set.of(Candidate.FinishReason.STOP.name(),
-						Candidate.FinishReason.FINISH_REASON_UNSPECIFIED.name()))) {
-					var toolCallConversation = handleToolCalls(prompt, chatResponse);
-					// Recursively call the stream method with the tool call message
-					// conversation that contains the call responses.
-					return this.stream(new Prompt(toolCallConversation, prompt.getOptions()));
-				}
-
-				return Flux.just(chatResponse);
-			});
-		}
-		catch (Exception e) {
-			throw new RuntimeException("Failed to generate content", e);
-		}
+			return Mono.just(chatResponse);
+		});
 	}
 
-	protected List<Generation> responseCandiateToGeneration(Candidate candidate) {
-
-		// TODO - The candidateIndex (e.g. choice must be asigned to the generation).
-		int candidateIndex = candidate.getIndex();
-		Candidate.FinishReason candidateFinishReasonn = candidate.getFinishReason();
-
-		Map<String, Object> messageMetadata = Map.of("candidateIndex", candidateIndex, "finishReason",
-				candidateFinishReasonn);
-
-		ChatGenerationMetadata chatGenerationMetadata = ChatGenerationMetadata.from(candidateFinishReasonn.name(),
-				null);
-
-		boolean isFunctinCall = candidate.getContent().getPartsList().stream().allMatch(Part::hasFunctionCall);
-
-		if (isFunctinCall) {
-			List<AssistantMessage.ToolCall> assistantToolCalls = candidate.getContent()
-				.getPartsList()
-				.stream()
-				.filter(part -> part.hasFunctionCall())
-				.map(part -> {
-					FunctionCall functionCall = part.getFunctionCall();
-					var functionName = functionCall.getName();
-					String functionArguments = structToJson(functionCall.getArgs());
-					return new AssistantMessage.ToolCall("", "function", functionName, functionArguments);
-				})
-				.toList();
-
-			AssistantMessage assistantMessage = new AssistantMessage("", messageMetadata, assistantToolCalls);
-
-			return List.of(new Generation(assistantMessage, chatGenerationMetadata));
-		}
-		else {
-			List<Generation> generations = candidate.getContent()
-				.getPartsList()
-				.stream()
-				.map(part -> new AssistantMessage(part.getText(), messageMetadata))
-				.map(assistantMessage -> new Generation(assistantMessage, chatGenerationMetadata))
-				.toList();
-
-			return generations;
-		}
-	}
-
-	private ChatResponseMetadata toChatResponseMetadata(GenerateContentResponse response) {
-		return ChatResponseMetadata.builder().withUsage(new VertexAiUsage(response.getUsageMetadata())).build();
-	}
-
-	@JsonInclude(JsonInclude.Include.NON_NULL)
-	public record AnthropicRequest(List<Content> contents, GenerativeModel model) {
-	}
-
-	AnthropicRequest createAnthropicRequest(Prompt prompt) {
+	ChatCompletionRequest createRequest(Prompt prompt, boolean stream) {
 
 		Set<String> functionsForThisRequest = new HashSet<>();
 
-		GenerationConfig generationConfig = this.generationConfig;
+		List<AnthropicMessage> userMessages = prompt.getInstructions()
+			.stream()
+			.filter(message -> message.getMessageType() != MessageType.SYSTEM)
+			.map(message -> {
+				if (message.getMessageType() == MessageType.USER) {
+					List<ContentBlock> contents = new ArrayList<>(List.of(new ContentBlock(message.getContent())));
+					if (message instanceof UserMessage userMessage) {
+						if (!CollectionUtils.isEmpty(userMessage.getMedia())) {
+							List<ContentBlock> mediaContent = userMessage.getMedia()
+								.stream()
+								.map(media -> new ContentBlock(media.getMimeType().toString(),
+										this.fromMediaData(media.getData())))
+								.toList();
+							contents.addAll(mediaContent);
+						}
+					}
+					return new AnthropicMessage(contents, Role.valueOf(message.getMessageType().name()));
+				}
+				else if (message.getMessageType() == MessageType.ASSISTANT) {
+					AssistantMessage assistantMessage = (AssistantMessage) message;
+					List<ContentBlock> contentBlocks = new ArrayList<>();
+					if (StringUtils.hasText(message.getContent())) {
+						contentBlocks.add(new ContentBlock(message.getContent()));
+					}
+					if (!CollectionUtils.isEmpty(assistantMessage.getToolCalls())) {
+						for (AssistantMessage.ToolCall toolCall : assistantMessage.getToolCalls()) {
+							contentBlocks.add(new ContentBlock(ContentBlock.Type.TOOL_USE, toolCall.id(),
+									toolCall.name(), ModelOptionsUtils.jsonToMap(toolCall.arguments())));
+						}
+					}
+					return new AnthropicMessage(contentBlocks, Role.ASSISTANT);
+				}
+				else if (message.getMessageType() == MessageType.TOOL) {
+					List<ContentBlock> toolResponses = ((ToolResponseMessage) message).getResponses()
+						.stream()
+						.map(toolResponse -> new ContentBlock(ContentBlock.Type.TOOL_RESULT, toolResponse.id(),
+								toolResponse.responseData()))
+						.toList();
+					return new AnthropicMessage(toolResponses, Role.USER);
+				}
+				else {
+					throw new IllegalArgumentException("Unsupported message type: " + message.getMessageType());
+				}
+			})
+			.toList();
 
-		GenerativeModel.Builder generativeModelBuilder = new GenerativeModel.Builder()
-			.setModelName(DEFAULT_ANTHROPIC_PUBLISHER + this.defaultOptions.getModel())
-			.setVertexAi(this.vertexAI);
+		String systemPrompt = prompt.getInstructions()
+			.stream()
+			.filter(m -> m.getMessageType() == MessageType.SYSTEM)
+			.map(m -> m.getContent())
+			.collect(Collectors.joining(System.lineSeparator()));
 
-		VertexAIAnthropicChatOptions updatedRuntimeOptions = VertexAIAnthropicChatOptions.builder().build();
+		ChatCompletionRequest request = new ChatCompletionRequest(this.defaultOptions.getModel(), userMessages,
+				systemPrompt, this.defaultOptions.getMaxTokens(), this.defaultOptions.getTemperature(), stream);
 
 		if (prompt.getOptions() != null) {
-			updatedRuntimeOptions = ModelOptionsUtils.copyToTarget(prompt.getOptions(), ChatOptions.class,
-					VertexAIAnthropicChatOptions.class);
+			VertexAIAnthropicChatOptions updatedRuntimeOptions = ModelOptionsUtils.copyToTarget(prompt.getOptions(),
+					ChatOptions.class, VertexAIAnthropicChatOptions.class);
 
-			functionsForThisRequest.addAll(runtimeFunctionCallbackConfigurations(updatedRuntimeOptions));
+			functionsForThisRequest.addAll(this.runtimeFunctionCallbackConfigurations(updatedRuntimeOptions));
+
+			request = ModelOptionsUtils.merge(updatedRuntimeOptions, request, ChatCompletionRequest.class);
 		}
 
 		if (!CollectionUtils.isEmpty(this.defaultOptions.getFunctions())) {
 			functionsForThisRequest.addAll(this.defaultOptions.getFunctions());
 		}
 
-		updatedRuntimeOptions = ModelOptionsUtils.merge(updatedRuntimeOptions, this.defaultOptions,
-				VertexAIAnthropicChatOptions.class);
+		request = ModelOptionsUtils.merge(request, this.defaultOptions, ChatCompletionRequest.class);
 
-		if (updatedRuntimeOptions != null) {
-
-			if (StringUtils.hasText(updatedRuntimeOptions.getModel())
-					&& !updatedRuntimeOptions.getModel().equals(this.defaultOptions.getModel())) {
-				// Override model name
-				generativeModelBuilder.setModelName(DEFAULT_ANTHROPIC_PUBLISHER + updatedRuntimeOptions.getModel());
-			}
-
-			generationConfig = toGenerationConfig(updatedRuntimeOptions);
-		}
-
-		// Add the enabled functions definitions to the request's tools parameter.
 		if (!CollectionUtils.isEmpty(functionsForThisRequest)) {
-			List<Tool> tools = this.getFunctionTools(functionsForThisRequest);
-			generativeModelBuilder.setTools(tools);
+
+			List<Tool> tools = getFunctionTools(functionsForThisRequest);
+
+			request = ChatCompletionRequest.from(request).withTools(tools).build();
 		}
 
-		generativeModelBuilder.setGenerationConfig(generationConfig);
-
-		List<Content> contents = toAnthropicContent(
-				prompt.getInstructions().stream().filter(m -> m.getMessageType() == MessageType.SYSTEM).toList());
-
-		if (!CollectionUtils.isEmpty(contents)) {
-			Assert.isTrue(contents.size() <= 1, "Only one system message is allowed in the prompt");
-			generativeModelBuilder.setSystemInstruction(contents.get(0));
-		}
-
-		return new AnthropicRequest(toAnthropicContent(
-				prompt.getInstructions().stream().filter(m -> m.getMessageType() != MessageType.SYSTEM).toList()),
-				generativeModelBuilder.build());
+		return request;
 	}
 
-	private GenerationConfig toGenerationConfig(VertexAIAnthropicChatOptions options) {
-
-		GenerationConfig.Builder generationConfigBuilder = GenerationConfig.newBuilder();
-
-		if (options.getTemperature() != null) {
-			generationConfigBuilder.setTemperature(options.getTemperature());
+	private String fromMediaData(Object mediaData) {
+		if (mediaData instanceof byte[] bytes) {
+			return Base64.getEncoder().encodeToString(bytes);
 		}
-		if (options.getMaxOutputTokens() != null) {
-			generationConfigBuilder.setMaxOutputTokens(options.getMaxOutputTokens());
-		}
-		if (options.getTopK() != null) {
-			generationConfigBuilder.setTopK(options.getTopK());
-		}
-		if (options.getTopP() != null) {
-			generationConfigBuilder.setTopP(options.getTopP());
-		}
-		if (options.getStopSequences() != null) {
-			generationConfigBuilder.addAllStopSequences(options.getStopSequences());
-		}
-
-		return generationConfigBuilder.build();
-	}
-
-	private List<Content> toAnthropicContent(List<Message> instructions) {
-
-		List<Content> contents = instructions.stream()
-			.map(message -> Content.newBuilder()
-				.setRole(toAnthropicMessageType(message.getMessageType()).getValue())
-				.addAllParts(messageToAnthropicParts(message))
-				.build())
-			.toList();
-
-		return contents;
-	}
-
-	private static AnthropicMessageType toAnthropicMessageType(@NonNull MessageType type) {
-		Assert.notNull(type, "Message type must not be null");
-
-		switch (type) {
-			case SYSTEM:
-			case USER:
-			case TOOL:
-				return AnthropicMessageType.USER;
-			case ASSISTANT:
-				return AnthropicMessageType.MODEL;
-			default:
-				throw new IllegalArgumentException("Unsupported message type: " + type);
-		}
-	}
-
-	static List<Part> messageToAnthropicParts(Message message) {
-		if (message instanceof SystemMessage systemMessage) {
-			List<Part> parts = new ArrayList<>();
-
-			if (systemMessage.getContent() != null) {
-				parts.add(Part.newBuilder().setText(systemMessage.getContent()).build());
-			}
-
-			return parts;
-		}
-		else if (message instanceof UserMessage userMessage) {
-			List<Part> parts = new ArrayList<>();
-			if (userMessage.getContent() != null) {
-				parts.add(Part.newBuilder().setText(userMessage.getContent()).build());
-			}
-
-			parts.addAll(mediaToParts(userMessage.getMedia()));
-
-			return parts;
-		}
-		else if (message instanceof AssistantMessage assistantMessage) {
-			List<Part> parts = new ArrayList<>();
-			if (StringUtils.hasText(assistantMessage.getContent())) {
-				List.of(Part.newBuilder().setText(assistantMessage.getContent()).build());
-			}
-			if (!CollectionUtils.isEmpty(assistantMessage.getToolCalls())) {
-				parts.addAll(assistantMessage.getToolCalls()
-					.stream()
-					.map(toolCall -> Part.newBuilder()
-						.setFunctionCall(FunctionCall.newBuilder()
-							.setName(toolCall.name())
-							.setArgs(jsonToStruct(toolCall.arguments()))
-							.build())
-						.build())
-					.toList());
-			}
-			return parts;
-		}
-		else if (message instanceof ToolResponseMessage toolResponseMessage) {
-
-			return toolResponseMessage.getResponses()
-				.stream()
-				.map(response -> Part.newBuilder()
-					.setFunctionResponse(FunctionResponse.newBuilder()
-						.setName(response.name())
-						.setResponse(jsonToStruct(response.responseData()))
-						.build())
-					.build())
-				.toList();
+		else if (mediaData instanceof String text) {
+			return text;
 		}
 		else {
-			throw new IllegalArgumentException("Anthropic doesn't support message type: " + message.getClass());
+			throw new IllegalArgumentException("Unsupported media data type: " + mediaData.getClass().getSimpleName());
 		}
-	}
-
-	private static List<Part> mediaToParts(Collection<Media> media) {
-		List<Part> parts = new ArrayList<>();
-
-		List<Part> mediaParts = media.stream()
-			.map(mediaData -> PartMaker.fromMimeTypeAndData(mediaData.getMimeType().toString(), mediaData.getData()))
-			.toList();
-
-		if (!CollectionUtils.isEmpty(mediaParts)) {
-			parts.addAll(mediaParts);
-		}
-
-		return parts;
 	}
 
 	private List<Tool> getFunctionTools(Set<String> functionNames) {
-		final var tool = Tool.newBuilder();
+		return this.resolveFunctionCallbacks(functionNames).stream().map(functionCallback -> {
+			var description = functionCallback.getDescription();
+			var name = functionCallback.getName();
+			String inputSchema = functionCallback.getInputTypeSchema();
+			return new Tool(name, description, ModelOptionsUtils.jsonToMap(inputSchema));
+		}).toList();
+	}
 
-		final List<FunctionDeclaration> functionDeclarations = this.resolveFunctionCallbacks(functionNames)
+	private ChatResponse toChatResponse(ChatCompletionResponse chatCompletion) {
+
+		if (chatCompletion == null) {
+			return new ChatResponse(List.of());
+		}
+
+		List<Generation> generations = chatCompletion.content()
 			.stream()
-			.map(functionCallback -> FunctionDeclaration.newBuilder()
-				.setName(functionCallback.getName())
-				.setDescription(functionCallback.getDescription())
-				.setParameters(jsonToSchema(functionCallback.getInputTypeSchema()))
-				.build())
+			.filter(content -> content.type() != ContentBlock.Type.TOOL_USE)
+			.map(content -> {
+				return new Generation(new AssistantMessage(content.text(), Map.of()),
+						ChatGenerationMetadata.from(chatCompletion.stopReason(), null));
+			})
 			.toList();
-		tool.addAllFunctionDeclarations(functionDeclarations);
-		return List.of(tool.build());
+
+		List<Generation> allGenerations = new ArrayList<>(generations);
+
+		List<ContentBlock> toolToUseList = chatCompletion.content()
+			.stream()
+			.filter(c -> c.type() == ContentBlock.Type.TOOL_USE)
+			.toList();
+
+		if (!CollectionUtils.isEmpty(toolToUseList)) {
+			List<AssistantMessage.ToolCall> toolCalls = new ArrayList<>();
+
+			for (ContentBlock toolToUse : toolToUseList) {
+
+				var functionCallId = toolToUse.id();
+				var functionName = toolToUse.name();
+				var functionArguments = ModelOptionsUtils.toJsonString(toolToUse.input());
+
+				toolCalls
+					.add(new AssistantMessage.ToolCall(functionCallId, "function", functionName, functionArguments));
+			}
+
+			AssistantMessage assistantMessage = new AssistantMessage("", Map.of(), toolCalls);
+			Generation toolCallGeneration = new Generation(assistantMessage,
+					ChatGenerationMetadata.from(chatCompletion.stopReason(), null));
+			allGenerations.add(toolCallGeneration);
+		}
+
+		return new ChatResponse(allGenerations, this.from(chatCompletion));
 	}
 
-	private static String structToJson(Struct struct) {
-		try {
-			return JsonFormat.printer().print(struct);
-		}
-		catch (Exception e) {
-			throw new RuntimeException(e);
-		}
-	}
-
-	private static Struct jsonToStruct(String json) {
-		try {
-			var structBuilder = Struct.newBuilder();
-			JsonFormat.parser().ignoringUnknownFields().merge(json, structBuilder);
-			return structBuilder.build();
-		}
-		catch (Exception e) {
-			throw new RuntimeException(e);
-		}
-	}
-
-	private static Schema jsonToSchema(String json) {
-		try {
-			var schemaBuilder = Schema.newBuilder();
-			JsonFormat.parser().ignoringUnknownFields().merge(json, schemaBuilder);
-			return schemaBuilder.build();
-		}
-		catch (Exception e) {
-			throw new RuntimeException(e);
-		}
-	}
-
-	private GenerateContentResponse getContentResponse(AnthropicRequest request) {
-		try {
-			return request.model.generateContent(request.contents);
-		}
-		catch (Exception e) {
-			throw new RuntimeException("Failed to generate content", e);
-		}
+	private ChatResponseMetadata from(ChatCompletionResponse result) {
+		Assert.notNull(result, "Anthropic ChatCompletionResult must not be null");
+		AnthropicUsage usage = AnthropicUsage.from(result.usage());
+		return ChatResponseMetadata.builder()
+			.withId(result.id())
+			.withModel(result.model())
+			.withUsage(usage)
+			.withKeyValue("stop-reason", result.stopReason())
+			.withKeyValue("stop-sequence", result.stopSequence())
+			.withKeyValue("type", result.type())
+			.build();
 	}
 
 	@Override

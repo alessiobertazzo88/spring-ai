@@ -61,13 +61,16 @@ public class VertexAIAnthropicChatOptions implements FunctionCallingOptions, Cha
 	/**
 	 * The maximum number of tokens to generate.
 	 */
-	private @JsonProperty("max_tokens") Integer maxOutputTokens;
+	private @JsonProperty("max_tokens") Integer maxTokens;
 
 	/**
 	 * The version of the generative to use. The default value is vertex-2023-10-16.
 	 */
 	private @JsonProperty("anthropic_version") String anthropicVersion;
 
+	/**
+	 * The model to use. The default value is claude-3-5-sonnet@20240620.
+	 */
 	private @JsonProperty("model") String model;
 
 	/**
@@ -125,8 +128,8 @@ public class VertexAIAnthropicChatOptions implements FunctionCallingOptions, Cha
 			return this;
 		}
 
-		public Builder withMaxOutputTokens(Integer maxOutputTokens) {
-			this.options.setMaxOutputTokens(maxOutputTokens);
+		public Builder withMaxTokens(Integer maxTokens) {
+			this.options.setMaxTokens(maxTokens);
 			return this;
 		}
 
@@ -158,6 +161,11 @@ public class VertexAIAnthropicChatOptions implements FunctionCallingOptions, Cha
 		}
 
 		public VertexAIAnthropicChatOptions build() {
+			Assert.hasText(this.options.anthropicVersion, "Anthropic version must not be empty");
+			Assert.hasText(this.options.model, "Model must not be empty");
+			Assert.isTrue(this.options.maxTokens != null && this.options.maxTokens > 0,
+					"Max tokens must be greater than 0");
+
 			return this.options;
 		}
 
@@ -206,12 +214,12 @@ public class VertexAIAnthropicChatOptions implements FunctionCallingOptions, Cha
 		return this.model;
 	}
 
-	public Integer getMaxOutputTokens() {
-		return this.maxOutputTokens;
+	public Integer getMaxTokens() {
+		return this.maxTokens;
 	}
 
-	public void setMaxOutputTokens(Integer maxOutputTokens) {
-		this.maxOutputTokens = maxOutputTokens;
+	public void setMaxTokens(Integer maxTokens) {
+		this.maxTokens = maxTokens;
 	}
 
 	public void setAnthropicVersion(String anthropicVersion) {
@@ -248,7 +256,7 @@ public class VertexAIAnthropicChatOptions implements FunctionCallingOptions, Cha
 			.withTemperature(fromOptions.getTemperature())
 			.withTopP(fromOptions.getTopP())
 			.withTopK(fromOptions.getTopK())
-			.withMaxOutputTokens(fromOptions.getMaxOutputTokens())
+			.withMaxTokens(fromOptions.getMaxTokens())
 			.withAnthropicVersion(fromOptions.getAnthropicVersion())
 			.withModel(fromOptions.getModel())
 			.withFunctionCallbacks(fromOptions.getFunctionCallbacks())

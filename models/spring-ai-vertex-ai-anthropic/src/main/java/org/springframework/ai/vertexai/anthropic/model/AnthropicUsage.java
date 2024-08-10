@@ -13,34 +13,52 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.springframework.ai.vertexai.anthropic.metadata;
+package org.springframework.ai.vertexai.anthropic.model;
 
-import com.google.cloud.vertexai.api.GenerateContentResponse.UsageMetadata;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.util.Assert;
 
 /**
+ * {@link ApiUsage} implementation for {@literal AnthropicApi}.
+ *
  * @author Alessio Bertazzo
  * @since 1.0.0
- * 
  */
-public class VertexAiUsage implements Usage {
+public class AnthropicUsage implements Usage {
 
-	private final UsageMetadata usageMetadata;
+	public static AnthropicUsage from(ApiUsage usage) {
+		return new AnthropicUsage(usage);
+	}
 
-	public VertexAiUsage(UsageMetadata usageMetadata) {
-		Assert.notNull(usageMetadata, "UsageMetadata must not be null");
-		this.usageMetadata = usageMetadata;
+	private final ApiUsage usage;
+
+	protected AnthropicUsage(ApiUsage usage) {
+		Assert.notNull(usage, "AnthropicApi Usage must not be null");
+		this.usage = usage;
+	}
+
+	protected ApiUsage getUsage() {
+		return this.usage;
 	}
 
 	@Override
 	public Long getPromptTokens() {
-		return Long.valueOf(usageMetadata.getPromptTokenCount());
+		return getUsage().inputTokens().longValue();
 	}
 
 	@Override
 	public Long getGenerationTokens() {
-		return Long.valueOf(usageMetadata.getCandidatesTokenCount());
+		return getUsage().outputTokens().longValue();
+	}
+
+	@Override
+	public Long getTotalTokens() {
+		return this.getPromptTokens() + this.getGenerationTokens();
+	}
+
+	@Override
+	public String toString() {
+		return getUsage().toString();
 	}
 
 }
