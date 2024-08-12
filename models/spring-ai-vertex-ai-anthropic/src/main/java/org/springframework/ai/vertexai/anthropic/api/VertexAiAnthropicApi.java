@@ -18,7 +18,8 @@ package org.springframework.ai.vertexai.anthropic.api;
 import com.google.auth.oauth2.GoogleCredentials;
 import org.springframework.ai.model.ModelOptionsUtils;
 import org.springframework.ai.retry.RetryUtils;
-import org.springframework.ai.vertexai.anthropic.model.*;
+import org.springframework.ai.vertexai.anthropic.model.ChatCompletionRequest;
+import org.springframework.ai.vertexai.anthropic.model.ChatCompletionResponse;
 import org.springframework.ai.vertexai.anthropic.model.stream.EventType;
 import org.springframework.ai.vertexai.anthropic.model.stream.StreamEvent;
 import org.springframework.ai.vertexai.anthropic.model.stream.ToolUseAggregationEvent;
@@ -45,7 +46,7 @@ import java.util.function.Predicate;
  * @author Alessio Bertazzo
  * @since 1.0.0
  */
-public class VertexAIAnthropicApi {
+public class VertexAiAnthropicApi {
 
 	private final String projectId;
 
@@ -65,7 +66,8 @@ public class VertexAIAnthropicApi {
 
 	private static final Predicate<String> SSE_DONE_PREDICATE = "[DONE]"::equals;
 
-	private VertexAIAnthropicApi(String projectId, String location, GoogleCredentials credentials) {
+	public VertexAiAnthropicApi(String projectId, String location, GoogleCredentials credentials, RestClient restClient,
+			WebClient webClient) {
 		this.projectId = projectId;
 		this.location = location;
 		this.credentials = credentials;
@@ -74,22 +76,34 @@ public class VertexAIAnthropicApi {
 			headers.setContentType(MediaType.APPLICATION_JSON);
 		};
 
-		this.restClient = RestClient.builder()
-			.baseUrl(VERTEXAI_BASE_URL.formatted(location))
-			.defaultHeaders(jsonContentHeaders)
-			.defaultStatusHandler(RetryUtils.DEFAULT_RESPONSE_ERROR_HANDLER)
-			.build();
+		if (restClient != null) {
+			this.restClient = restClient;
+		}
+		else {
+			this.restClient = RestClient.builder()
+				.baseUrl(VERTEXAI_BASE_URL.formatted(location))
+				.defaultHeaders(jsonContentHeaders)
+				.defaultStatusHandler(RetryUtils.DEFAULT_RESPONSE_ERROR_HANDLER)
+				.build();
+		}
 
-		this.webClient = WebClient.builder()
-			.baseUrl(VERTEXAI_BASE_URL.formatted(location))
-			.defaultHeaders(jsonContentHeaders)
-			.defaultStatusHandler(HttpStatusCode::isError,
-					resp -> Mono.just(new RuntimeException("Response exception, Status: [" + resp.statusCode()
-							+ "], Body:[" + resp.bodyToMono(java.lang.String.class) + "]")))
-			.build();
+		if (webClient != null) {
+			this.webClient = webClient;
+		}
+		else {
+			this.webClient = WebClient.builder()
+				.baseUrl(VERTEXAI_BASE_URL.formatted(location))
+				.defaultHeaders(jsonContentHeaders)
+				.defaultStatusHandler(HttpStatusCode::isError,
+						resp -> Mono.just(new RuntimeException("Response exception, Status: [" + resp.statusCode()
+								+ "], Body:[" + resp.bodyToMono(java.lang.String.class) + "]")))
+				.build();
+		}
 	}
 
-	// create the builder class
+	/**
+	 * Builder for {@link VertexAiAnthropicApi}.
+	 */
 	public static class Builder {
 
 		private String projectId;
@@ -97,6 +111,10 @@ public class VertexAIAnthropicApi {
 		private String location;
 
 		private GoogleCredentials credentials;
+
+		private RestClient restClient;
+
+		private WebClient webClient;
 
 		public Builder projectId(String projectId) {
 			this.projectId = projectId;
@@ -113,18 +131,22 @@ public class VertexAIAnthropicApi {
 			return this;
 		}
 
-		public VertexAIAnthropicApi build() {
-			return new VertexAIAnthropicApi(projectId, location, credentials);
+		public Builder restClient(RestClient restClient) {
+			this.restClient = restClient;
+			return this;
+		}
+
+		public Builder webClient(WebClient webClient) {
+			this.webClient = webClient;
+			return this;
+		}
+
+		public VertexAiAnthropicApi build() {
+			return new VertexAiAnthropicApi(projectId, location, credentials, restClient, webClient);
 		}
 
 	}
 
-	/**
-	 * Creates a model response for the given chat conversation.
-	 * @param chatRequest The chat completion request.
-	 * @return Entity response with {@link ChatCompletionResponse} as a body and HTTP
-	 * status code and headers.
-	 */
 	public ResponseEntity<ChatCompletionResponse> chatCompletion(ChatCompletionRequest chatRequest, String model) {
 
 		Assert.notNull(chatRequest, "The request body can not be null.");
@@ -132,8 +154,8 @@ public class VertexAIAnthropicApi {
 
 		return this.restClient.post()
 			.uri(VERTEXAI_ANTHROPIC_ENDPOINT.formatted(projectId, location, model) + ":rawPredict")
-			.headers(headers -> headers.setBearerAuth(this.credentials.getAccessToken().getTokenValue()))
-			.body(chatRequest)
+			.headers(headers -> headers.setBearerAuth(this.getBearerToken(credentials)))
+			.body(ModelOptionsUtils.toJsonString(chatRequest))
 			.retrieve()
 			.toEntity(ChatCompletionResponse.class);
 	}
@@ -155,6 +177,7 @@ public class VertexAIAnthropicApi {
 
 		return this.webClient.post()
 			.uri(VERTEXAI_ANTHROPIC_ENDPOINT.formatted(projectId, location, model) + ":streamRawPredict")
+			.headers(headers -> headers.setBearerAuth(this.getBearerToken(credentials)))
 			.body(Mono.just(chatRequest), ChatCompletionRequest.class)
 			.retrieve()
 			.bodyToFlux(String.class)
@@ -188,18 +211,16 @@ public class VertexAIAnthropicApi {
 			.filter(chatCompletionResponse -> chatCompletionResponse.type() != null);
 	}
 
-	// create a method that given the credentials variable return the bearer token. Check
-	// that the token exists and is not expired before returning it and if it is expired,
-	// refresh it.
-	public String getBearerToken(GoogleCredentials credentials) {
+	/**
+	 * Returns the bearer token from the given credentials.
+	 * @param credentials The Google credentials.
+	 * @return The bearer token.
+	 */
+	private String getBearerToken(GoogleCredentials credentials) {
 		Assert.notNull(credentials, "The credentials can not be null.");
 
 		try {
-			// if (credentials.getAccessToken() == null) {
-			// credentials.refresh();
-			// } else {
 			credentials.refreshIfExpired();
-			// }
 		}
 		catch (IOException e) {
 			throw new RuntimeException(e);

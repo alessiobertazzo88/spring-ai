@@ -30,11 +30,8 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 @JsonSubTypes({ @JsonSubTypes.Type(value = ContentBlockStartEvent.class, name = "content_block_start"),
 		@JsonSubTypes.Type(value = ContentBlockDeltaEvent.class, name = "content_block_delta"),
 		@JsonSubTypes.Type(value = ContentBlockStopEvent.class, name = "content_block_stop"),
-
 		@JsonSubTypes.Type(value = PingEvent.class, name = "ping"),
-
 		@JsonSubTypes.Type(value = ErrorEvent.class, name = "error"),
-
 		@JsonSubTypes.Type(value = MessageStartEvent.class, name = "message_start"),
 		@JsonSubTypes.Type(value = MessageDeltaEvent.class, name = "message_delta"),
 		@JsonSubTypes.Type(value = MessageStopEvent.class, name = "message_stop") })

@@ -15,15 +15,18 @@
  */
 package org.springframework.ai.vertexai.anthropic.api;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
-
-import org.springframework.ai.vertexai.anthropic.model.*;
+import org.springframework.ai.vertexai.anthropic.model.ApiUsage;
+import org.springframework.ai.vertexai.anthropic.model.ChatCompletionResponse;
+import org.springframework.ai.vertexai.anthropic.model.ContentBlock;
+import org.springframework.ai.vertexai.anthropic.model.Role;
 import org.springframework.ai.vertexai.anthropic.model.stream.*;
 import org.springframework.util.Assert;
 import org.springframework.util.CollectionUtils;
 import org.springframework.util.StringUtils;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Helper class to support streaming function calling.
@@ -36,6 +39,11 @@ import org.springframework.util.StringUtils;
  */
 public class StreamHelper {
 
+	/**
+	 * Checks if the given event is a tool use start event.
+	 * @param event the StreamEvent to check
+	 * @return true if the event is a tool use start event, false otherwise
+	 */
 	public boolean isToolUseStart(StreamEvent event) {
 		if (event == null || event.type() == null || event.type() != EventType.CONTENT_BLOCK_START) {
 			return false;
@@ -43,6 +51,11 @@ public class StreamHelper {
 		return ContentBlock.Type.TOOL_USE.getValue().equals(((ContentBlockStartEvent) event).contentBlock().type());
 	}
 
+	/**
+	 * Checks if the given event is a tool use start event.
+	 * @param event the StreamEvent to check
+	 * @return true if the event is a tool use start event, false otherwise
+	 */
 	public boolean isToolUseFinish(StreamEvent event) {
 
 		if (event == null || event.type() == null || event.type() != EventType.CONTENT_BLOCK_STOP) {
@@ -51,6 +64,13 @@ public class StreamHelper {
 		return true;
 	}
 
+	/**
+	 * Merges tool use events into a single aggregated event.
+	 * @param previousEvent the previous StreamEvent, expected to be a
+	 * ToolUseAggregationEvent
+	 * @param event the current StreamEvent to merge
+	 * @return the merged StreamEvent, or the original event if no merging is performed
+	 */
 	public StreamEvent mergeToolUseEvents(StreamEvent previousEvent, StreamEvent event) {
 
 		ToolUseAggregationEvent eventAggregator = (ToolUseAggregationEvent) previousEvent;
@@ -65,7 +85,7 @@ public class StreamHelper {
 				return eventAggregator.withIndex(contentBlockStart.index())
 					.withId(cbToolUse.id())
 					.withName(cbToolUse.name())
-					.appendPartialJson(""); // CB START always has empty JSON.
+					.appendPartialJson("");
 			}
 		}
 		else if (event.type() == EventType.CONTENT_BLOCK_DELTA) {
@@ -85,10 +105,14 @@ public class StreamHelper {
 		return event;
 	}
 
+	/**
+	 * Converts a StreamEvent to a ChatCompletionResponse.
+	 * @param event the StreamEvent to convert
+	 * @param contentBlockReference a reference to the ChatCompletionResponseBuilder
+	 * @return the constructed ChatCompletionResponse
+	 */
 	public ChatCompletionResponse eventToChatCompletionResponse(StreamEvent event,
 			AtomicReference<ChatCompletionResponseBuilder> contentBlockReference) {
-
-		// https://docs.anthropic.com/claude/reference/messages-streaming
 
 		if (event.type().equals(EventType.MESSAGE_START)) {
 			contentBlockReference.set(new ChatCompletionResponseBuilder());
@@ -103,7 +127,7 @@ public class StreamHelper {
 				.withUsage(messageStartEvent.message().usage())
 				.withContent(new ArrayList<>());
 		}
-		else if (event.type().equals(EventType.TOOL_USE_AGGREATE)) {
+		else if (event.type().equals(EventType.TOOL_USE_AGGREGATE)) {
 			ToolUseAggregationEvent eventToolUseBuilder = (ToolUseAggregationEvent) event;
 
 			if (!CollectionUtils.isEmpty(eventToolUseBuilder.getToolContentBlocks())) {
@@ -174,6 +198,9 @@ public class StreamHelper {
 		return contentBlockReference.get().build();
 	}
 
+	/**
+	 * Builder class for constructing ChatCompletionResponse objects.
+	 */
 	public static class ChatCompletionResponseBuilder {
 
 		private String type;

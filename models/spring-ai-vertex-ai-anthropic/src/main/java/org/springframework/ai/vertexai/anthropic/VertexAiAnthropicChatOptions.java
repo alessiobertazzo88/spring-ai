@@ -35,7 +35,7 @@ import java.util.Set;
  * @since 1.0.0
  */
 @JsonInclude(Include.NON_NULL)
-public class VertexAIAnthropicChatOptions implements FunctionCallingOptions, ChatOptions {
+public class VertexAiAnthropicChatOptions implements FunctionCallingOptions, ChatOptions {
 
 	// @formatter:off
 	/**
@@ -97,7 +97,7 @@ public class VertexAIAnthropicChatOptions implements FunctionCallingOptions, Cha
 	private Set<String> functions = new HashSet<>();
 	// @formatter:on
 
-	private VertexAIAnthropicChatOptions() {
+	private VertexAiAnthropicChatOptions() {
 	}
 
 	public static Builder builder() {
@@ -106,7 +106,7 @@ public class VertexAIAnthropicChatOptions implements FunctionCallingOptions, Cha
 
 	public static class Builder {
 
-		private final VertexAIAnthropicChatOptions options = new VertexAIAnthropicChatOptions();
+		private final VertexAiAnthropicChatOptions options = new VertexAiAnthropicChatOptions();
 
 		public Builder withStopSequences(List<String> stopSequences) {
 			this.options.setStopSequences(stopSequences);
@@ -160,7 +160,7 @@ public class VertexAIAnthropicChatOptions implements FunctionCallingOptions, Cha
 			return this;
 		}
 
-		public VertexAIAnthropicChatOptions build() {
+		public VertexAiAnthropicChatOptions build() {
 			Assert.hasText(this.options.anthropicVersion, "Anthropic version must not be empty");
 			Assert.hasText(this.options.model, "Model must not be empty");
 			Assert.isTrue(this.options.maxTokens != null && this.options.maxTokens > 0,
@@ -247,11 +247,11 @@ public class VertexAIAnthropicChatOptions implements FunctionCallingOptions, Cha
 	}
 
 	@Override
-	public VertexAIAnthropicChatOptions copy() {
+	public VertexAiAnthropicChatOptions copy() {
 		return fromOptions(this);
 	}
 
-	public static VertexAIAnthropicChatOptions fromOptions(VertexAIAnthropicChatOptions fromOptions) {
+	public static VertexAiAnthropicChatOptions fromOptions(VertexAiAnthropicChatOptions fromOptions) {
 		return builder().withStopSequences(fromOptions.getStopSequences())
 			.withTemperature(fromOptions.getTemperature())
 			.withTopP(fromOptions.getTopP())

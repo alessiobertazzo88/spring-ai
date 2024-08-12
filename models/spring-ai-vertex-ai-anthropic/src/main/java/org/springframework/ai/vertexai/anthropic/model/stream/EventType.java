@@ -76,6 +76,6 @@ public enum EventType {
 	/**
 	 * Artifically created event to aggregate tool use events.
 	 */
-	TOOL_USE_AGGREATE;
+	TOOL_USE_AGGREGATE;
 
 }

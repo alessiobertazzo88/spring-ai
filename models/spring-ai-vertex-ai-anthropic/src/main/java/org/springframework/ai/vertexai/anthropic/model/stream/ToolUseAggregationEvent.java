@@ -43,7 +43,7 @@ public class ToolUseAggregationEvent implements StreamEvent {
 
 	@Override
 	public EventType type() {
-		return EventType.TOOL_USE_AGGREATE;
+		return EventType.TOOL_USE_AGGREGATE;
 	}
 
 	public List<ContentBlockStartEvent.ContentBlockToolUse> getToolContentBlocks() {

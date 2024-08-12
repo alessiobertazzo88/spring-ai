@@ -15,20 +15,18 @@
  */
 package org.springframework.ai.vertexai.anthropic;
 
-import org.springframework.ai.chat.messages.AssistantMessage;
-import org.springframework.ai.chat.messages.MessageType;
-import org.springframework.ai.chat.messages.ToolResponseMessage;
-import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.messages.*;
 import org.springframework.ai.chat.metadata.ChatGenerationMetadata;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.model.*;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.model.ChatModelDescription;
 import org.springframework.ai.model.ModelOptionsUtils;
 import org.springframework.ai.model.function.FunctionCallback;
 import org.springframework.ai.model.function.FunctionCallbackContext;
 import org.springframework.ai.retry.RetryUtils;
-import org.springframework.ai.vertexai.anthropic.api.VertexAIAnthropicApi;
+import org.springframework.ai.vertexai.anthropic.api.VertexAiAnthropicApi;
 import org.springframework.ai.vertexai.anthropic.model.*;
 import org.springframework.http.ResponseEntity;
 import org.springframework.retry.support.RetryTemplate;
@@ -48,51 +46,72 @@ import java.util.stream.Collectors;
  * @author Alessio Bertazzo
  * @since 1.0.0
  */
-public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implements ChatModel, StreamingChatModel {
+public class VertexAiAnthropicChatModel extends AbstractToolCallSupport implements ChatModel, StreamingChatModel {
 
-	private final VertexAIAnthropicApi anthropicApi;
+	private final VertexAiAnthropicApi anthropicApi;
 
-	private final VertexAIAnthropicChatOptions defaultOptions;
+	private final VertexAiAnthropicChatOptions defaultOptions;
 
-	/**
-	 * The retry template used to retry the VertexAI Anthropic API calls.
-	 */
 	public final RetryTemplate retryTemplate;
 
-	private static final String DEFAULT_ANTHROPIC_VERSION = "vertex-2023-10-16";
+	public static final String DEFAULT_ANTHROPIC_VERSION = "vertex-2023-10-16";
 
-	public VertexAIAnthropicChatModel(VertexAIAnthropicApi anthropicApi) {
+	public enum ChatModel implements ChatModelDescription {
+
+		CLAUDE_3_5_SONNET("claude-3-5-sonnet@20240620"),
+
+		CLAUDE_3_OPUS("claude-3-opus@20240229"), CLAUDE_3_SONNET("claude-3-sonnet@20240229"),
+		CLAUDE_3_HAIKU("claude-3-haiku@20240307");
+
+		public final String value;
+
+		ChatModel(String value) {
+			this.value = value;
+		}
+
+		public String getValue() {
+			return this.value;
+		}
+
+		@Override
+		public String getName() {
+			return this.value;
+		}
+
+	}
+
+	public VertexAiAnthropicChatModel(VertexAiAnthropicApi anthropicApi) {
 		this(anthropicApi,
-				VertexAIAnthropicChatOptions.builder()
+				VertexAiAnthropicChatOptions.builder()
 					.withTemperature(0.8f)
 					.withMaxTokens(500)
 					.withTopK(10)
 					.withAnthropicVersion(DEFAULT_ANTHROPIC_VERSION)
-					.withModel(ChatModels.CLAUDE_3_5_SONNET.getValue())
+					.withModel(ChatModel.CLAUDE_3_5_SONNET.getValue())
 					.build());
 	}
 
-	public VertexAIAnthropicChatModel(VertexAIAnthropicApi anthropicApi, VertexAIAnthropicChatOptions options) {
+	public VertexAiAnthropicChatModel(VertexAiAnthropicApi anthropicApi, VertexAiAnthropicChatOptions options) {
 		this(anthropicApi, options, RetryUtils.DEFAULT_RETRY_TEMPLATE);
 	}
 
-	public VertexAIAnthropicChatModel(VertexAIAnthropicApi anthropicApi, VertexAIAnthropicChatOptions options,
+	public VertexAiAnthropicChatModel(VertexAiAnthropicApi anthropicApi, VertexAiAnthropicChatOptions options,
 			RetryTemplate retryTemplate) {
 		this(anthropicApi, options, retryTemplate, null);
 	}
 
-	public VertexAIAnthropicChatModel(VertexAIAnthropicApi anthropicApi, VertexAIAnthropicChatOptions options,
+	public VertexAiAnthropicChatModel(VertexAiAnthropicApi anthropicApi, VertexAiAnthropicChatOptions options,
 			RetryTemplate retryTemplate, FunctionCallbackContext functionCallbackContext) {
 		this(anthropicApi, options, retryTemplate, functionCallbackContext, List.of());
 	}
 
-	public VertexAIAnthropicChatModel(VertexAIAnthropicApi anthropicApi, VertexAIAnthropicChatOptions options,
+	public VertexAiAnthropicChatModel(VertexAiAnthropicApi anthropicApi, VertexAiAnthropicChatOptions options,
 			RetryTemplate retryTemplate, FunctionCallbackContext functionCallbackContext,
 			List<FunctionCallback> toolFunctionCallbacks) {
 
 		super(functionCallbackContext, options, toolFunctionCallbacks);
 
-		Assert.notNull(anthropicApi, "VertexAIAnthropicApi must not be null");
+		Assert.notNull(anthropicApi, "VertexAiAnthropicApi must not be null");
 		Assert.notNull(options, "VertexAiAnthropicChatOptions must not be null");
 
 		this.anthropicApi = anthropicApi;
@@ -100,8 +119,19 @@ public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implemen
 		this.retryTemplate = retryTemplate;
 	}
 
+	/**
+	 * Calls the VertexAI Anthropic chat model with the given prompt.
+	 * @param prompt the Prompt object containing the instructions and options for the
+	 * chat model
+	 * @return the ChatResponse from the chat model
+	 * @throws IllegalArgumentException if the prompt is null or the prompt instructions
+	 * are empty
+	 */
 	@Override
 	public ChatResponse call(Prompt prompt) {
+		Assert.notNull(prompt, "Prompt cannot be null");
+		Assert.notEmpty(prompt.getInstructions(), "Prompt instructions cannot be empty");
+
 		ChatCompletionRequest request = createRequest(prompt, false);
 
 		ResponseEntity<ChatCompletionResponse> completionEntity = this.retryTemplate
@@ -110,15 +140,27 @@ public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implemen
 		ChatResponse chatResponse = toChatResponse(completionEntity.getBody());
 
 		if (this.isToolCall(chatResponse, Set.of("tool_use"))) {
-			var toolCallConversation = handleToolCalls(prompt, chatResponse);
+			List<Message> toolCallConversation = handleToolCalls(prompt, chatResponse);
 			return this.call(new Prompt(toolCallConversation, prompt.getOptions()));
 		}
 
 		return chatResponse;
 	}
 
+	/**
+	 * Streams the chat responses from the VertexAI Anthropic chat model with the given
+	 * prompt.
+	 * @param prompt the Prompt object containing the instructions and options for the
+	 * chat model
+	 * @return a Flux of ChatResponse from the chat model
+	 * @throws IllegalArgumentException if the prompt is null or the prompt instructions
+	 * are empty
+	 */
 	@Override
 	public Flux<ChatResponse> stream(Prompt prompt) {
+		Assert.notNull(prompt, "Prompt cannot be null");
+		Assert.notEmpty(prompt.getInstructions(), "Prompt instructions cannot be empty");
+
 		ChatCompletionRequest request = createRequest(prompt, true);
 
 		Flux<ChatCompletionResponse> response = this.retryTemplate
@@ -129,7 +171,7 @@ public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implemen
 			ChatResponse chatResponse = toChatResponse(chatCompletionResponse);
 
 			if (this.isToolCall(chatResponse, Set.of("tool_use"))) {
-				var toolCallConversation = handleToolCalls(prompt, chatResponse);
+				List<Message> toolCallConversation = handleToolCalls(prompt, chatResponse);
 				return this.stream(new Prompt(toolCallConversation, prompt.getOptions()));
 			}
 
@@ -137,7 +179,16 @@ public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implemen
 		});
 	}
 
-	ChatCompletionRequest createRequest(Prompt prompt, boolean stream) {
+	/**
+	 * Creates a ChatCompletionRequest based on the given prompt and stream flag.
+	 * @param prompt the Prompt object containing the instructions and options for the
+	 * chat model
+	 * @param stream a boolean flag indicating whether the request is for streaming
+	 * responses
+	 * @return the constructed ChatCompletionRequest
+	 * @throws IllegalArgumentException if an unsupported message type is encountered
+	 */
+	private ChatCompletionRequest createRequest(Prompt prompt, boolean stream) {
 
 		Set<String> functionsForThisRequest = new HashSet<>();
 
@@ -193,12 +244,13 @@ public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implemen
 			.map(m -> m.getContent())
 			.collect(Collectors.joining(System.lineSeparator()));
 
-		ChatCompletionRequest request = new ChatCompletionRequest(this.defaultOptions.getModel(), userMessages,
-				systemPrompt, this.defaultOptions.getMaxTokens(), this.defaultOptions.getTemperature(), stream);
+		ChatCompletionRequest request = new ChatCompletionRequest(this.defaultOptions.getAnthropicVersion(),
+				userMessages, systemPrompt, this.defaultOptions.getMaxTokens(), this.defaultOptions.getTemperature(),
+				stream);
 
 		if (prompt.getOptions() != null) {
-			VertexAIAnthropicChatOptions updatedRuntimeOptions = ModelOptionsUtils.copyToTarget(prompt.getOptions(),
-					ChatOptions.class, VertexAIAnthropicChatOptions.class);
+			VertexAiAnthropicChatOptions updatedRuntimeOptions = ModelOptionsUtils.copyToTarget(prompt.getOptions(),
+					ChatOptions.class, VertexAiAnthropicChatOptions.class);
 
 			functionsForThisRequest.addAll(this.runtimeFunctionCallbackConfigurations(updatedRuntimeOptions));
 
@@ -221,6 +273,13 @@ public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implemen
 		return request;
 	}
 
+	/**
+	 * Converts media data to a string representation.
+	 * @param mediaData the media data to convert, which can be either a byte array or a
+	 * string
+	 * @return the string representation of the media data
+	 * @throws IllegalArgumentException if the media data type is unsupported
+	 */
 	private String fromMediaData(Object mediaData) {
 		if (mediaData instanceof byte[] bytes) {
 			return Base64.getEncoder().encodeToString(bytes);
@@ -233,15 +292,26 @@ public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implemen
 		}
 	}
 
+	/**
+	 * Retrieves a list of tools based on the provided function names.
+	 * @param functionNames a set of function names to resolve into tools
+	 * @return a list of Tool objects corresponding to the provided function names
+	 */
 	private List<Tool> getFunctionTools(Set<String> functionNames) {
 		return this.resolveFunctionCallbacks(functionNames).stream().map(functionCallback -> {
-			var description = functionCallback.getDescription();
-			var name = functionCallback.getName();
+			String description = functionCallback.getDescription();
+			String name = functionCallback.getName();
 			String inputSchema = functionCallback.getInputTypeSchema();
 			return new Tool(name, description, ModelOptionsUtils.jsonToMap(inputSchema));
 		}).toList();
 	}
 
+	/**
+	 * Converts a ChatCompletionResponse into a ChatResponse.
+	 * @param chatCompletion the ChatCompletionResponse object containing the response
+	 * data from the chat model
+	 * @return the ChatResponse object containing the processed response data
+	 */
 	private ChatResponse toChatResponse(ChatCompletionResponse chatCompletion) {
 
 		if (chatCompletion == null) {
@@ -269,9 +339,9 @@ public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implemen
 
 			for (ContentBlock toolToUse : toolToUseList) {
 
-				var functionCallId = toolToUse.id();
-				var functionName = toolToUse.name();
-				var functionArguments = ModelOptionsUtils.toJsonString(toolToUse.input());
+				String functionCallId = toolToUse.id();
+				String functionName = toolToUse.name();
+				String functionArguments = ModelOptionsUtils.toJsonString(toolToUse.input());
 
 				toolCalls
 					.add(new AssistantMessage.ToolCall(functionCallId, "function", functionName, functionArguments));
@@ -286,6 +356,13 @@ public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implemen
 		return new ChatResponse(allGenerations, this.from(chatCompletion));
 	}
 
+	/**
+	 * Converts a ChatCompletionResponse into a ChatResponseMetadata.
+	 * @param result the ChatCompletionResponse object containing the response data from
+	 * the chat model
+	 * @return the ChatResponseMetadata object containing the processed metadata
+	 * @throws IllegalArgumentException if the result is null
+	 */
 	private ChatResponseMetadata from(ChatCompletionResponse result) {
 		Assert.notNull(result, "Anthropic ChatCompletionResult must not be null");
 		AnthropicUsage usage = AnthropicUsage.from(result.usage());
@@ -301,7 +378,7 @@ public class VertexAIAnthropicChatModel extends AbstractToolCallSupport implemen
 
 	@Override
 	public ChatOptions getDefaultOptions() {
-		return VertexAIAnthropicChatOptions.fromOptions(this.defaultOptions);
+		return VertexAiAnthropicChatOptions.fromOptions(this.defaultOptions);
 	}
 
 }
