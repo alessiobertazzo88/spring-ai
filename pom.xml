@@ -19,11 +19,11 @@
 		<module>spring-ai-test</module>
 		<module>spring-ai-spring-boot-autoconfigure</module>
 		<module>spring-ai-retry</module>
-		<!--<module>spring-ai-spring-boot-docker-compose</module>
-		<module>spring-ai-spring-boot-testcontainers</module>-->
+		<module>spring-ai-spring-boot-docker-compose</module>
+		<module>spring-ai-spring-boot-testcontainers</module>
 		<module>spring-ai-spring-cloud-bindings</module>
 
-		<!--<module>document-readers/pdf-reader</module>
+		<module>document-readers/pdf-reader</module>
 		<module>document-readers/tika-reader</module>
 
 		<module>vector-stores/spring-ai-azure-store</module>
@@ -60,9 +60,9 @@
 		<module>spring-ai-spring-boot-starters/spring-ai-starter-redis-store</module>
 		<module>spring-ai-spring-boot-starters/spring-ai-starter-typesense-store</module>
 		<module>spring-ai-spring-boot-starters/spring-ai-starter-weaviate-store</module>
-		<module>models/spring-ai-anthropic</module>-->
+		<module>models/spring-ai-anthropic</module>
 		<module>models/spring-ai-azure-openai</module>
-		<!--<module>models/spring-ai-bedrock</module>
+		<module>models/spring-ai-bedrock</module>
 		<module>models/spring-ai-huggingface</module>
 		<module>models/spring-ai-minimax</module>
 		<module>models/spring-ai-mistral-ai</module>
@@ -71,10 +71,10 @@
 		<module>models/spring-ai-postgresml</module>
 		<module>models/spring-ai-qianfan</module>
 		<module>models/spring-ai-stability-ai</module>
-		<module>models/spring-ai-transformers</module>-->
+		<module>models/spring-ai-transformers</module>
 		<module>models/spring-ai-vertex-ai-anthropic</module>
 		<module>models/spring-ai-vertex-ai-gemini</module>
-		<!--<module>models/spring-ai-vertex-ai-embedding</module>
+		<module>models/spring-ai-vertex-ai-embedding</module>
 		<module>models/spring-ai-vertex-ai-palm2</module>
 		<module>models/spring-ai-watsonx-ai</module>
 		<module>models/spring-ai-zhipuai</module>
@@ -99,7 +99,7 @@
 		<module>spring-ai-spring-boot-starters/spring-ai-starter-zhipuai</module>
 		<module>spring-ai-spring-boot-starters/spring-ai-starter-moonshot</module>
 		<module>vector-stores/spring-ai-opensearch-store</module>
-		<module>spring-ai-spring-boot-starters/spring-ai-starter-opensearch-store</module>-->
+		<module>spring-ai-spring-boot-starters/spring-ai-starter-opensearch-store</module>
 	</modules>
 
 	<organization>
